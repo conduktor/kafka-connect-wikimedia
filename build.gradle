@@ -1,0 +1,41 @@
+plugins {
+    id 'java'
+    id "com.github.johnrengelman.shadow" version "6.1.0"
+}
+
+group 'io.conduktor.demos'
+version '1.0'
+
+repositories {
+    mavenCentral()
+}
+
+
+dependencies {
+    // https://mvnrepository.com/artifact/org.apache.kafka/kafka-connect
+    implementation 'org.apache.kafka:connect-api:3.1.0'
+
+    // https://mvnrepository.com/artifact/org.slf4j/slf4j-api
+    implementation 'org.slf4j:slf4j-api:1.7.35'
+
+    // https://mvnrepository.com/artifact/org.slf4j/slf4j-simple
+    implementation 'org.slf4j:slf4j-simple:1.7.35'
+
+    // https://mvnrepository.com/artifact/com.launchdarkly/okhttp-eventsource
+    implementation 'com.launchdarkly:okhttp-eventsource:2.5.0'
+
+    // https://mvnrepository.com/artifact/com.squareup.okhttp3/okhttp
+    implementation 'com.squareup.okhttp3:okhttp:4.9.3'
+
+}
+
+test {
+    useJUnitPlatform()
+}
+
+// Configuring output using ANT patterns
+shadowJar {
+    dependencies {
+        exclude(dependency('org.apache.kafka:connect-api'))
+    }
+}
