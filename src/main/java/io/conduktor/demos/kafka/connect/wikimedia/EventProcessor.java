@@ -4,6 +4,7 @@ import com.launchdarkly.eventsource.EventHandler;
 import com.launchdarkly.eventsource.EventSource;
 import com.launchdarkly.eventsource.MessageEvent;
 
+import java.util.Map;
 import java.net.URI;
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
@@ -63,7 +64,9 @@ public abstract class EventProcessor {
         if (reconnectTime == null) {
             reconnectTime = Duration.ofMillis(3000);
         }
+        Map<String, String> headers = Collections.singletonMap("User-Agent", "my-kafka-producer/1.0");
         eventSource = new EventSource.Builder(new CustomEventHandler(), URI.create(this.uri))
+                .headers(Headers.of(headers))
                 .reconnectTime(reconnectTime).build();
         promise = new CompletableFuture<>();
 
