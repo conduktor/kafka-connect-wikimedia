@@ -3,10 +3,12 @@ package io.conduktor.demos.kafka.connect.wikimedia;
 import com.launchdarkly.eventsource.EventHandler;
 import com.launchdarkly.eventsource.EventSource;
 import com.launchdarkly.eventsource.MessageEvent;
+import okhttp3.Headers;
 
-import java.util.Map;
 import java.net.URI;
 import java.time.Duration;
+import java.util.Collections;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
 /**
