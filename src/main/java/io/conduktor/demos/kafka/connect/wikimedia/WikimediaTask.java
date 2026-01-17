@@ -34,9 +34,10 @@ public class WikimediaTask extends SourceTask {
         String topic = map.get(WikimediaConnector.TOPIC_CONFIG);
         String uri = map.get(WikimediaConnector.URL_CONFIG);
         Duration reconnectDuration = Duration.ofMillis(Integer.parseInt(map.get(WikimediaConnector.RECONNECT_TIME_CONFIG)));
+        String userAgent = map.getOrDefault(WikimediaConnector.USER_AGENT_CONFIG, "WikimediaKafkaConnector/1.0 (https://github.com/conduktor/kafka-connect-wikimedia)");
 
         // initiate a new processor
-        processor = new EventProcessor(uri) {
+        processor = new EventProcessor(uri, userAgent) {
             @Override
             protected void onClosed() {
 

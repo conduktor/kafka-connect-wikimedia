@@ -3,7 +3,12 @@ package io.conduktor.demos.kafka.connect.wikimedia;
 import com.launchdarkly.eventsource.EventHandler;
 import com.launchdarkly.eventsource.EventSource;
 import com.launchdarkly.eventsource.MessageEvent;
+import okhttp3.Interceptor;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.Response;
 
+import java.io.IOException;
 import java.net.URI;
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
@@ -20,10 +25,27 @@ public abstract class EventProcessor {
     private Long count = 0L;
 
     private final String uri;
+    private final String userAgent;
 
     private EventSource eventSource;
+
+    /**
+     * EventProcessor constructor
+     * @param uri event stream URI
+     */
     public EventProcessor(String uri) {
         this.uri = uri;
+        this.userAgent = null;
+    }
+
+    /**
+     * EventProcessor constructor with User-Agent support
+     * @param uri event stream URI
+     * @param userAgent User-Agent header value for HTTP requests
+     */
+    public EventProcessor(String uri, String userAgent) {
+        this.uri = uri;
+        this.userAgent = userAgent;
     }
 
     /**
@@ -63,8 +85,19 @@ public abstract class EventProcessor {
         if (reconnectTime == null) {
             reconnectTime = Duration.ofMillis(3000);
         }
-        eventSource = new EventSource.Builder(new CustomEventHandler(), URI.create(this.uri))
-                .reconnectTime(reconnectTime).build();
+
+        EventSource.Builder builder = new EventSource.Builder(new CustomEventHandler(), URI.create(this.uri))
+                .reconnectTime(reconnectTime);
+
+        // Add User-Agent header via OkHttpClient interceptor if specified
+        if (userAgent != null && !userAgent.isEmpty()) {
+            OkHttpClient okHttpClient = new OkHttpClient.Builder()
+                    .addInterceptor(new UserAgentInterceptor(userAgent))
+                    .build();
+            builder.client(okHttpClient);
+        }
+
+        eventSource = builder.build();
         promise = new CompletableFuture<>();
 
         eventSource.start();
@@ -104,6 +137,28 @@ public abstract class EventProcessor {
 
     }
 
+    /**
+     * Interceptor for adding User-Agent header to HTTP requests
+     */
+    private static class UserAgentInterceptor implements Interceptor {
+        private final String userAgent;
 
+        /**
+         * Interceptor constructor
+         * @param userAgent User-Agent header value
+         */
+        UserAgentInterceptor(String userAgent) {
+            this.userAgent = userAgent;
+        }
+
+        @Override
+        public Response intercept(Chain chain) throws IOException {
+            Request originalRequest = chain.request();
+            Request requestWithUserAgent = originalRequest.newBuilder()
+                    .header("User-Agent", userAgent)
+                    .build();
+            return chain.proceed(requestWithUserAgent);
+        }
+    }
 
 }
