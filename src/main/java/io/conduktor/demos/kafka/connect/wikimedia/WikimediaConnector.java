@@ -10,8 +10,7 @@ import java.util.Map;
 
 public class WikimediaConnector extends SourceConnector {
 
-    //static version for the connector
-    public static String VERSION = "0.01";
+    public static final String VERSION = "1.1.0";
 
     // define configs name
     public static final String TOPIC_CONFIG = "topic";
