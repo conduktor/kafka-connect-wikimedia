@@ -1,98 +1,100 @@
 package io.conduktor.demos.kafka.connect.wikimedia;
 
-
 import com.launchdarkly.eventsource.MessageEvent;
 import org.apache.kafka.connect.data.Schema;
 import org.apache.kafka.connect.errors.ConnectException;
 import org.apache.kafka.connect.source.SourceRecord;
 import org.apache.kafka.connect.source.SourceTask;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
-import java.util.*;
+import java.util.Collections;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingDeque;
 import java.util.concurrent.TimeUnit;
 
 public class WikimediaTask extends SourceTask {
 
+    private static final Logger log = LoggerFactory.getLogger(WikimediaTask.class);
+    private static final int MAX_QUEUE_SIZE = 10000;
+    private static final Map<String, String> SOURCE_PARTITION = Collections.singletonMap("source", "wikimedia");
+
     private EventProcessor processor;
     private BlockingQueue<SourceRecord> queue;
+    private String topic;
 
-
-    /**
-     * will use a static version for now
-     */
     @Override
     public String version() {
         return WikimediaConnector.VERSION;
     }
 
     @Override
-    public void start(Map<String, String> map) {
+    public void start(Map<String, String> props) {
+        topic = props.get(WikimediaConnector.TOPIC_CONFIG);
+        String uri = props.get(WikimediaConnector.URL_CONFIG);
+        int reconnectMs = Integer.parseInt(props.get(WikimediaConnector.RECONNECT_TIME_CONFIG));
+        String userAgent = props.get(WikimediaConnector.USER_AGENT_CONFIG);
 
-        //get all configs and store it in local variables
-        String topic = map.get(WikimediaConnector.TOPIC_CONFIG);
-        String uri = map.get(WikimediaConnector.URL_CONFIG);
-        Duration reconnectDuration = Duration.ofMillis(Integer.parseInt(map.get(WikimediaConnector.RECONNECT_TIME_CONFIG)));
-        String userAgent = map.getOrDefault(WikimediaConnector.USER_AGENT_CONFIG, "WikimediaKafkaConnector/1.0 (https://github.com/conduktor/kafka-connect-wikimedia)");
+        queue = new LinkedBlockingDeque<>(MAX_QUEUE_SIZE);
 
-        // initiate a new processor
         processor = new EventProcessor(uri, userAgent) {
             @Override
             protected void onClosed() {
-
+                log.info("Wikimedia event stream closed");
             }
 
             @Override
             protected void onEvent(String event, MessageEvent messageEvent) {
-                //each event will be added to stash
-                queue.add(new SourceRecord(
-                        Collections.singletonMap("source", "wikimedia"),
-                        Collections.singletonMap("offset", 0),
+                String lastEventId = messageEvent.getLastEventId();
+                Map<String, String> offset = Collections.singletonMap("lastEventId",
+                        lastEventId != null ? lastEventId : String.valueOf(System.currentTimeMillis()));
+
+                SourceRecord record = new SourceRecord(
+                        SOURCE_PARTITION,
+                        offset,
                         topic,
                         Schema.STRING_SCHEMA,
                         messageEvent.getData()
-                ));
+                );
+
+                if (!queue.offer(record)) {
+                    log.warn("Queue full, dropping event. Consider increasing consumer throughput.");
+                }
             }
         };
 
-        //start the processor
         try {
-            queue = new LinkedBlockingDeque<>();
-            processor.start(reconnectDuration);
+            processor.start(Duration.ofMillis(reconnectMs));
+            log.info("WikimediaTask started for topic: {}", topic);
         } catch (Exception e) {
-            throw new ConnectException("unable to start processor",e);
+            throw new ConnectException("Failed to start Wikimedia processor", e);
         }
-
     }
 
     @Override
     public List<SourceRecord> poll() throws InterruptedException {
-
         List<SourceRecord> records = new LinkedList<>();
 
-        SourceRecord event = queue.poll(1L, TimeUnit.SECONDS);
-        if (event == null) {
+        SourceRecord record = queue.poll(1, TimeUnit.SECONDS);
+        if (record == null) {
             return records;
         }
 
-        records.add(event);
-        queue.drainTo(records);
+        records.add(record);
+        queue.drainTo(records, 500); // Batch up to 500 records
 
         return records;
     }
 
     @Override
     public void stop() {
-
-        // stop the processor on shutdown
+        log.info("Stopping WikimediaTask");
         if (processor != null) {
-            try {
-                processor.shutdown();
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
+            processor.shutdown();
         }
-
     }
 }

@@ -7,158 +7,159 @@ import okhttp3.Interceptor;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.net.URI;
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * abstract event processor
+ * Abstract event processor for Server-Sent Events streams.
  */
 public abstract class EventProcessor {
 
-    EventProcessor _eventProcessor = this;
+    private static final Logger log = LoggerFactory.getLogger(EventProcessor.class);
 
-    CompletableFuture<Long> promise;
-
-    private Long count = 0L;
-
+    private final AtomicLong count = new AtomicLong(0);
     private final String uri;
     private final String userAgent;
 
+    private CompletableFuture<Long> promise;
     private EventSource eventSource;
+    private OkHttpClient httpClient;
 
-    /**
-     * EventProcessor constructor
-     * @param uri event stream URI
-     */
     public EventProcessor(String uri) {
         this.uri = uri;
         this.userAgent = null;
     }
 
-    /**
-     * EventProcessor constructor with User-Agent support
-     * @param uri event stream URI
-     * @param userAgent User-Agent header value for HTTP requests
-     */
     public EventProcessor(String uri, String userAgent) {
         this.uri = uri;
         this.userAgent = userAgent;
     }
 
     /**
-     * override this method to do on close callback
+     * Called when the event source connection is closed.
      */
     protected abstract void onClosed();
 
-
     /**
-     * override this method to handle each message
+     * Called for each received event.
      */
     protected abstract void onEvent(String event, MessageEvent messageEvent);
 
     /**
-     * shuts down the processor
-     * @throws Exception throw if the processor hasn't started
+     * Shuts down the processor and releases resources.
      */
-    public void shutdown() throws Exception {
-        if (eventSource == null) {
-            promise.complete(count);
-            throw new Exception("trying to stop EventProcessor without starting");
-        } else {
+    public void shutdown() {
+        if (eventSource != null) {
             eventSource.close();
+        }
+        if (httpClient != null) {
+            httpClient.dispatcher().executorService().shutdown();
+            httpClient.connectionPool().evictAll();
+            try {
+                httpClient.dispatcher().executorService().awaitTermination(5, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                log.warn("Interrupted while waiting for HTTP client shutdown");
+            }
+        }
+        if (promise != null && !promise.isDone()) {
+            promise.complete(count.get());
         }
     }
 
     /**
-     * start the processor
-     * @param reconnectTime reconnect if processor in case of error for this duration
-     * @throws Exception throws if already started
-     * @return a promise which the caller can wait on ; this promise will complete once the processor is shutdown
+     * Starts the event processor.
+     *
+     * @param reconnectTime duration to wait before reconnecting on error
+     * @return a future that completes when the processor is shut down
+     * @throws IllegalStateException if already started
      */
-    public CompletableFuture<Long> start(Duration reconnectTime) throws Exception {
+    public CompletableFuture<Long> start(Duration reconnectTime) {
         if (eventSource != null) {
-            throw new Exception("trying to start already started EventProcessor");
-        }
-        if (reconnectTime == null) {
-            reconnectTime = Duration.ofMillis(3000);
+            throw new IllegalStateException("EventProcessor already started");
         }
 
-        EventSource.Builder builder = new EventSource.Builder(new CustomEventHandler(), URI.create(this.uri))
-                .reconnectTime(reconnectTime);
+        Duration reconnect = reconnectTime != null ? reconnectTime : Duration.ofMillis(3000);
 
-        // Add User-Agent header via OkHttpClient interceptor if specified
+        EventSource.Builder builder = new EventSource.Builder(new InternalEventHandler(), URI.create(this.uri))
+                .reconnectTime(reconnect);
+
         if (userAgent != null && !userAgent.isEmpty()) {
-            OkHttpClient okHttpClient = new OkHttpClient.Builder()
+            httpClient = new OkHttpClient.Builder()
                     .addInterceptor(new UserAgentInterceptor(userAgent))
                     .build();
-            builder.client(okHttpClient);
+            builder.client(httpClient);
         }
 
         eventSource = builder.build();
         promise = new CompletableFuture<>();
 
         eventSource.start();
+        log.info("EventProcessor started for URI: {}", uri);
 
         return promise;
-
     }
 
     /**
-     * a custom event handler that delegates to processor methods
+     * Returns the current event count.
      */
-    public class CustomEventHandler implements EventHandler {
+    public long getCount() {
+        return count.get();
+    }
+
+    private class InternalEventHandler implements EventHandler {
 
         @Override
-        public void onOpen() { }
+        public void onOpen() {
+            log.debug("EventSource connection opened");
+        }
 
         @Override
         public void onClosed() {
-            _eventProcessor.onClosed();
-            promise.complete(count);
+            log.info("EventSource connection closed after {} events", count.get());
+            EventProcessor.this.onClosed();
+            if (promise != null) {
+                promise.complete(count.get());
+            }
         }
 
         @Override
         public void onMessage(String event, MessageEvent messageEvent) {
-            count++;
+            count.incrementAndGet();
             onEvent(event, messageEvent);
         }
 
         @Override
-        public void onComment(String comment) {}
+        public void onComment(String comment) {
+            // SSE keep-alive comments, ignore
+        }
 
         @Override
         public void onError(Throwable t) {
-            System.out.println("onError");
-            t.printStackTrace();
+            log.error("EventSource error: {}", t.getMessage(), t);
         }
-
     }
 
-    /**
-     * Interceptor for adding User-Agent header to HTTP requests
-     */
     private static class UserAgentInterceptor implements Interceptor {
         private final String userAgent;
 
-        /**
-         * Interceptor constructor
-         * @param userAgent User-Agent header value
-         */
         UserAgentInterceptor(String userAgent) {
             this.userAgent = userAgent;
         }
 
         @Override
         public Response intercept(Chain chain) throws IOException {
-            Request originalRequest = chain.request();
-            Request requestWithUserAgent = originalRequest.newBuilder()
+            Request request = chain.request().newBuilder()
                     .header("User-Agent", userAgent)
                     .build();
-            return chain.proceed(requestWithUserAgent);
+            return chain.proceed(request);
         }
     }
-
 }
