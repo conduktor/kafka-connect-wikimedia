@@ -49,6 +49,56 @@ Requires Java 11+.
 
 Output: `build/libs/kafka-connect-wikimedia-<version>-all.jar`
 
+## Local Development
+
+A Docker Compose setup is provided for local testing.
+
+### Quick Start
+
+```bash
+# Build the connector
+./gradlew shadowJar
+
+# Start Kafka + Connect
+docker compose up -d
+
+# Wait for Connect to be ready (~20s)
+curl http://localhost:8083/connector-plugins | grep -i wikimedia
+
+# Deploy the connector
+curl -X POST http://localhost:8083/connectors \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "wikimedia-source",
+    "config": {
+      "connector.class": "io.conduktor.demos.kafka.connect.wikimedia.WikimediaConnector",
+      "tasks.max": "1",
+      "topic": "wikimedia.recentchange",
+      "url": "https://stream.wikimedia.org/v2/stream/recentchange"
+    }
+  }'
+
+# Check connector status
+curl http://localhost:8083/connectors/wikimedia-source/status
+
+# Consume messages
+docker exec kafka /opt/kafka/bin/kafka-console-consumer.sh \
+  --bootstrap-server localhost:29092 \
+  --topic wikimedia.recentchange \
+  --from-beginning \
+  --max-messages 5
+
+# Cleanup
+docker compose down
+```
+
+### Endpoints
+
+| Service | URL |
+|---------|-----|
+| Kafka (external) | `localhost:9092` |
+| Kafka Connect REST API | `http://localhost:8083` |
+
 ## Related Resources
 
 - [Awesome Kafka Connect](https://github.com/conduktor/awesome-kafka-connect) - Curated list of Kafka Connect connectors
