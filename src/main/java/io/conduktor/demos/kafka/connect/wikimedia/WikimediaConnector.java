@@ -17,16 +17,19 @@ public class WikimediaConnector extends SourceConnector {
     public static final String TOPIC_CONFIG = "topic";
     public static final String URL_CONFIG = "url";
     public static final String RECONNECT_TIME_CONFIG = "reconnect.duration";
+    public static final String USER_AGENT_CONFIG = "http.headers.user.agent";
 
     //config definition object
     private static final ConfigDef CONFIG_DEF = new ConfigDef()
             .define(TOPIC_CONFIG, ConfigDef.Type.STRING, null, ConfigDef.Importance.HIGH, "The topic to publish data to")
             .define(URL_CONFIG, ConfigDef.Type.STRING, null, ConfigDef.Importance.HIGH, "The event stream url to fetch events from")
-            .define(RECONNECT_TIME_CONFIG, ConfigDef.Type.INT, null, ConfigDef.Importance.LOW, "reconnect duration (milliseconds) config for event stream url. defaults to 3 seconds");
+            .define(RECONNECT_TIME_CONFIG, ConfigDef.Type.INT, null, ConfigDef.Importance.LOW, "reconnect duration (milliseconds) config for event stream url. defaults to 3 seconds")
+            .define(USER_AGENT_CONFIG, ConfigDef.Type.STRING, "WikimediaKafkaConnector/1.0 (https://github.com/conduktor/kafka-connect-wikimedia)", ConfigDef.Importance.MEDIUM, "User-Agent header value for HTTP requests. Required by Wikimedia API.");
 
     private String topic;
     private String uri;
     private String reconnectDuration;
+    private String userAgent;
 
 
     @Override
@@ -35,6 +38,7 @@ public class WikimediaConnector extends SourceConnector {
         topic = map.get(WikimediaConnector.TOPIC_CONFIG);
         uri = map.get(WikimediaConnector.URL_CONFIG);
         reconnectDuration = map.getOrDefault(WikimediaConnector.RECONNECT_TIME_CONFIG, "3000");
+        userAgent = map.getOrDefault(WikimediaConnector.USER_AGENT_CONFIG, "WikimediaKafkaConnector/1.0 (https://github.com/conduktor/kafka-connect-wikimedia)");
     }
 
     @Override
@@ -51,6 +55,7 @@ public class WikimediaConnector extends SourceConnector {
         config.put(TOPIC_CONFIG, topic);
         config.put(URL_CONFIG, uri);
         config.put(RECONNECT_TIME_CONFIG, reconnectDuration);
+        config.put(USER_AGENT_CONFIG, userAgent);
         return Collections.singletonList(config);
     }
 
